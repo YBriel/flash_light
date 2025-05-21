@@ -3,14 +3,12 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:torch_controller/torch_controller.dart';
 
-void main(){
+void main() {
   TorchController().initialize();
   runApp(MorseApp());
 }
 
-
 class MorseApp extends StatefulWidget {
-
   const MorseApp({super.key});
 
   @override
@@ -18,41 +16,59 @@ class MorseApp extends StatefulWidget {
 }
 
 class _MorseAppState extends State<MorseApp> {
-
   bool isFlashOn = false;
-
   final controller = TorchController();
-
-  late Timer? _flashTimer;
+  Timer? _flashTimer;
+  bool _isFlashing = false;
+  bool _actualTorchState = false;
 
   @override
   void dispose() {
-    _flashTimer?.cancel();
+    _stopFlashing();
     super.dispose();
   }
 
-  void initState() {
-    super.initState();
-  }
+  Future<void> _startFlashing() async {
+    if (_isFlashing) return;
 
-
-  Future<void> _toggleFlash() async {
-    if (isFlashOn) {
-      print("点击按钮{$isFlashOn}");
-      try {
-        _flashTimer = Timer.periodic(const Duration(milliseconds: 100), // 调整为 200ms 降低频率
-                (timer)  {
-               controller.toggle(intensity: 1);
-          }
-        );
-      } catch (e) {
-        print("闪光灯控制失败: $e");
-      }
-    }else{
-      print('关闭闪光灯了{$isFlashOn}');
-      _flashTimer?.cancel();
+    // 确保初始状态为关闭
+    final isActive = await controller.isTorchActive;
+    if (isActive == true) {
       await controller.toggle(intensity: 1);
     }
+
+    setState(() => _isFlashing = true);
+
+    _flashTimer = Timer.periodic(
+      const Duration(milliseconds: 100),
+      (timer) async {
+        await controller.toggle(intensity: 1);
+        // 同步真实硬件状态
+        _actualTorchState = !_actualTorchState;
+      },
+    );
+  }
+
+  Future<void> _stopFlashing() async {
+    if (!_isFlashing) return;
+
+    _flashTimer?.cancel();
+    _flashTimer = null;
+
+    // 双重保障关闭闪光灯
+    try {
+      final isActive = await controller.isTorchActive;
+      if (isActive == true) {
+        await controller.toggle(intensity: 1);
+      }
+    } catch (e) {
+      debugPrint("关闭闪光灯失败: $e");
+    }
+
+    setState(() {
+      _isFlashing = false;
+      _actualTorchState = false;
+    });
   }
 
   @override
@@ -83,14 +99,15 @@ class _MorseAppState extends State<MorseApp> {
               const SizedBox(height: 40),
               const SizedBox(height: 20),
               ElevatedButton(
-                onPressed: () => {controller.toggle(intensity: 1)},
+                onPressed: () {
+                  controller.toggle(intensity: 1);
+                },
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.teal,
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 40, vertical: 15),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 40, vertical: 15),
                 ),
-                child: const Text(
-                    '开启闪光灯⚡️', style: TextStyle(fontSize: 18)),
+                child: const Text('开启闪光灯⚡️', style: TextStyle(fontSize: 18)),
               ),
               const SizedBox(height: 60),
               Row(
@@ -99,35 +116,15 @@ class _MorseAppState extends State<MorseApp> {
                   IconButton(
                     icon: const Icon(Icons.flash_auto_sharp, size: 32),
                     color: Colors.teal,
-                    onPressed: () {
-                      print('按钮');
-                      setState(() => isFlashOn = true);
-                      _toggleFlash();
-
-                    },                  ),
+                    onPressed: _startFlashing,
+                  ),
                   const Text('开闪', style: TextStyle(color: Colors.teal)),
                   IconButton(
                     icon: const Icon(Icons.format_list_bulleted, size: 32),
                     color: Colors.teal,
-                    onPressed: (){
-                      print('关闭闪光灯');
-                      setState((){
-                        isFlashOn = false;
-                        _flashTimer?.cancel();
-                        controller.isTorchActive.then((value) {
-                          if (value == true) {
-                            controller.toggle(intensity: 1);
-                          }
-                        });
-                      }
-
-                      );
-                      _flashTimer?.cancel();
-                    },
+                    onPressed: _stopFlashing,
                   ),
-                  const Text(
-                      '饶它条狗命', style: TextStyle(color: Colors.teal)),
-
+                  const Text('饶它条狗命', style: TextStyle(color: Colors.teal)),
                 ],
               )
             ],
